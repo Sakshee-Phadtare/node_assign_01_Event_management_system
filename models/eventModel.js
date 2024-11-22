@@ -12,12 +12,12 @@ const getEventById = (id) => {
 
 // Create a new event
 const createEvent = (event) => {
-  const { name, description, date_time, location } = event;
+  const { name, description, date_time, location, image_path } = event;
   return connection.promise().query(
-    'INSERT INTO events (name, description, date_time, location) VALUES (?, ?, ?, ?)',
-    [name, description, date_time, location]
+    'INSERT INTO events (name, description, date_time, location, image_path) VALUES (?, ?, ?, ?,?)',
+    [name, description, date_time, location, image_path]
   );
-};
+};  
 
 // Update an event
 const updateEvent = (id, event) => {

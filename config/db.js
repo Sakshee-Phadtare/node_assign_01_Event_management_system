@@ -10,8 +10,8 @@ const connection = mysql.createConnection({
 })
 
 console.log(process.env.DB_DATABASE)
-connection.connect((err)=>{
-    if(err)
+connection.connect((error)=>{
+    if(error)
     {
         console.log("Error in Database connection.")
     }
