@@ -5,18 +5,22 @@ const path = require('path');
 const eventModel = require('../models/eventModel');
 const schema = require('../inputValidation');
 const streamifier = require('streamifier');
+const { promisify } = require('util');
+
+//destructuring
+const{CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET } = process.env
 
 // Cloudinary Configuration
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET,
 });
 
 // File filter to allow only .png and .jpg files
-const fileFilter = (req, file, callBack) => {
+const fileFilter = async(req, file, callBack) => {
   const allowedFileTypes = ['.png', '.jpg'];
-  const extname = path.extname(file.originalname).toLowerCase();
+  const extname = path.extname(file.originalname).toLowerCase();  
 
   if (allowedFileTypes.includes(extname)) {
     callBack(null, true); 
@@ -54,6 +58,8 @@ const uploadToCloudinary = (buffer) =>
 
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
+
+
 
 // Create a new event
 const createEvent = async (req, res) => {
