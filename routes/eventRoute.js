@@ -1,22 +1,38 @@
 const express = require('express');
-const router = express.Router();
+const router = express.Router();  
 const eventController = require('../controllers/eventController');
 const { upload } = eventController; 
 
 
 // Route for creating a new event
-router.post('/events', upload.single('file'), eventController.createEvent);
+router.post('/events/createEvent', (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) {
+        // Handle Multer error
+        return res.status(400).json({ message: err.message });
+      }
+      next();
+    });
+  }, eventController.createEvent);
 
 // Route for getting all events
-router.get('/events', eventController.getAllEvents);
+router.get('/events/getEvents', eventController.getAllEvents);
 
 // Route for getting an event by ID
-router.get('/events/:id', eventController.getEventById);
+router.get('/events/getEventById/:id', eventController.getEventById);
 
 // Route for updating an event by ID
-router.put('/events/:id', upload.single('file'), eventController.updateEvent);
+router.put('/events/updateEventById/:id', (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) {
+        // Handle Multer error
+        return res.status(400).json({ message: err.message });
+      }
+      next();
+    });
+  }, eventController.updateEvent);
 
 // Route for deleting an event by ID
-router.delete('/events/:id', eventController.deleteEvent);
+router.delete('/events/deleteEvent/:id', eventController.deleteEvent);
 
 module.exports = router;

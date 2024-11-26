@@ -1,7 +1,7 @@
 
 const mysql = require('mysql2')
 require('dotenv').config()
-
+//destructure variables from process.env
 const connection = mysql.createConnection({
     host: process.env.dB_HOST,
     user: process.env.dB_USER,
@@ -9,7 +9,6 @@ const connection = mysql.createConnection({
     database: process.env.dB_DATABASE,
 })
 
-console.log(process.env.DB_DATABASE)
 connection.connect((error)=>{
     if(error)
     {

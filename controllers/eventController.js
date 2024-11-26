@@ -1,103 +1,193 @@
+const { ERROR_MESSAGES, SUCCESS_MESSAGES, STATUS_CODES } = require('../constants');
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 const path = require('path');
 const eventModel = require('../models/eventModel');
+const schema = require('../inputValidation');
+const streamifier = require('streamifier');
 
-const storage = multer.diskStorage({
-  destination: (req, file, callBack) => {
-      callBack(null, './uploads');
-  },
-  filename: (req, file, callBack) => {
-      callBack(null, Date.now() + path.extname(file.originalname)); 
-  }
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-const upload = multer({ storage });
+
+// File filter to allow only .png and .jpg files
+const fileFilter = (req, file, callBack) => {
+  const allowedFileTypes = ['.png', '.jpg'];
+  const extname = path.extname(file.originalname).toLowerCase();
+
+  if (allowedFileTypes.includes(extname)) {
+    callBack(null, true); 
+  } else {
+    callBack(new Error(ERROR_MESSAGES.FILE_TYPE_ERROR), false);
+  }
+};
+
+const storage = multer.memoryStorage();
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5000 * 1024 * 1024 },
+  fileFilter,
+});
+
+// Function for validating inputs
+const validateInput = (data) => {
+  const { error } = schema.validate(data, { abortEarly: false });
+  if (error) {
+    return error.details.map((detail) => detail.message);
+  }
+  return null;
+};
+
+// Function to upload file buffer to Cloudinary
+const uploadToCloudinary = (buffer) =>
+  new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream((error, result) => {
+      if (error) {
+        return reject(new Error(ERROR_MESSAGES.UPLOAD_ERROR));
+      }
+      resolve(result.secure_url);
+    });
+
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
 
 // Create a new event
 const createEvent = async (req, res) => {
-    console.log(req.body);
-    
-    const { name, description, date_time,location} = req.body;
-    console.log('File Path:', req.file?.path); 
-    const image_path = req.file ? `/uploads/${req.file.filename}` : null;
-
-
-    try {
-      await eventModel.createEvent({ name, description, date_time, location,image_path });
-     return res.status(201).json({ message: 'Event created successfully' });
-    } catch (error) {
-        console.log(error);
-        
-      res.status(500).json({ message: 'Error creating event' });
-    }
-  };
-  
-  // Get all events
-  const getAllEvents = async (req, res) => {
-    try {
-      const [events] = await eventModel.getAllEvents();
-      if(events.length===0)
-      {
-        res.status(204).json({ message: 'Event list is empty. There is no event added yet.' })
-      }
-      else{
-        res.json(events);
-      }
-      
-    } catch (err) {
-      res.status(500).json({ message: 'Error fetching events' });
-    }
-  };
-  
-  // Get a specific event by ID
-  const getEventById = async (req, res) => {
-    const { id } = req.params;
-  
-    try {
-      const [event] = await eventModel.getEventById(id);
-      console.log('event.length',event.length)
-      if (!event.length) {
-         return res.status(404).json({ message: 'Event not found' });
-      }
-      res.json(event);
-    } catch (err) {
-      res.status(500).json({ message: 'Error fetching event' });
-    }
-  };
-  
-  // Update an event
-  const updateEvent = async (req, res) => {
-    const { id } = req.params;
+  try {
     const { name, description, date_time, location } = req.body;
-    const image_path = req.file ? `/uploads/${req.file.filename}` : null;
-  
-    try {
-      await eventModel.updateEvent(id, { name, description, date_time, location, image_path: req.file?.path });
-      res.json({ message: 'Event updated successfully' });
-    } catch (err) {
-      res.status(500).json({ message: 'Error updating event' });
-    }
-  };
-  
-  // Delete an event
-  const deleteEvent = async (req, res) => {
-    const { id } = req.params;
-  
-    try {
-      await eventModel.deleteEvent(id);
-      res.json({ message: 'Event deleted successfully' });
-    } catch (err) {
-      res.status(500).json({ message: 'Error deleting event' });
-    }
-  };
 
+    // Validate inputs
+    const validationErrors = validateInput({ name, date_time, location });
+    if (validationErrors) {
+      return res
+        .status(STATUS_CODES.BAD_REQUEST)
+        .json({ errors: validationErrors });
+    }
 
-  
-  module.exports = {
-    upload,
-    createEvent,
-    getAllEvents,
-    getEventById,
-    updateEvent,
-    deleteEvent
-  };
-  
+    let image_path = null;
+    if (req.file) {
+      image_path = await uploadToCloudinary(req.file.buffer);
+    }
+
+    await eventModel.createEvent({ name, description, date_time, location, image_path });
+    return res
+      .status(STATUS_CODES.CREATED)
+      .json({ message: SUCCESS_MESSAGES.EVENT_CREATED });
+  } catch (error) {
+    console.error(error);
+    res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: ERROR_MESSAGES.CREATE_EVENT_ERROR });
+  }
+};
+
+// Fetch all active events (not deleted)
+const getAllEvents = async (req, res) => {
+  try {
+    const [events] = await eventModel.getAllActiveEvents();
+    if (!events.length) {
+      return res
+        .status(STATUS_CODES.NO_CONTENT)
+        .json({ message: ERROR_MESSAGES.EVENT_LIST_EMPTY });
+    }
+    res.status(STATUS_CODES.SUCCESS).json(events);
+  } catch (err) {
+    res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: ERROR_MESSAGES.FETCH_ERROR });
+  }
+};
+
+// Get a specific event by ID
+const getEventById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [event] = await eventModel.getEventById(id);
+    if (!event.length) {
+      return res
+        .status(STATUS_CODES.NOT_FOUND)
+        .json({ message: ERROR_MESSAGES.EVENT_NOT_FOUND });
+    }
+    res.status(STATUS_CODES.SUCCESS).json(event);
+  } catch (err) {
+    res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: ERROR_MESSAGES.FETCH_ERROR });
+  }
+};
+
+// Update an event
+const updateEvent = async (req, res) => {
+  const { id } = req.params;
+  const { name, description, date_time, location } = req.body;
+
+  // Validate inputs
+  const validationErrors = validateInput({ name, date_time, location });
+  if (validationErrors) {
+    return res
+      .status(STATUS_CODES.BAD_REQUEST)
+      .json({ errors: validationErrors });
+  }
+
+  let image_path = null;
+  if (req.file) {
+    image_path = await uploadToCloudinary(req.file.buffer);
+  }
+
+  try {
+    const [event] = await eventModel.getEventById(id);
+    if (!event.length) {
+      return res
+        .status(STATUS_CODES.NOT_FOUND)
+        .json({ message: ERROR_MESSAGES.EVENT_NOT_FOUND });
+    }
+
+    await eventModel.updateEvent(id, { name, description, date_time, location, image_path });
+    res
+      .status(STATUS_CODES.SUCCESS)
+      .json({ message: SUCCESS_MESSAGES.EVENT_UPDATED });
+  } catch (err) {
+    res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: ERROR_MESSAGES.UPDATE_EVENT_ERROR });
+  }
+};
+
+// Soft delete an event
+const deleteEvent = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [event] = await eventModel.getEventById(id);
+
+    if (!event.length) {
+      return res
+        .status(STATUS_CODES.NOT_FOUND)
+        .json({ message: ERROR_MESSAGES.EVENT_NOT_FOUND });
+    }
+
+    // Mark the event as deleted
+    await eventModel.softDeleteEvent(id);
+    res
+      .status(STATUS_CODES.SUCCESS)
+      .json({ message: SUCCESS_MESSAGES.EVENT_DELETED });
+  } catch (err) {
+    res
+      .status(STATUS_CODES.SERVER_ERROR)
+      .json({ message: ERROR_MESSAGES.DELETE_EVENT_ERROR });
+  }
+};
+
+module.exports = {
+  upload,
+  createEvent,
+  getAllEvents,
+  getEventById,
+  updateEvent,
+  deleteEvent,
+};
